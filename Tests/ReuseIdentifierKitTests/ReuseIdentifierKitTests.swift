@@ -9,7 +9,7 @@ import XCTest
 import ReuseIdentifierKitMacros
 
 let testMacros: [String: Macro.Type] = [
-    "stringify": StringifyMacro.self,
+    "ReuseIdentifier": ReuseIdentifierMacro.self,
 ]
 #endif
 
@@ -18,31 +18,58 @@ final class ReuseIdentifierKitTests: XCTestCase {
         #if canImport(ReuseIdentifierKitMacros)
         assertMacroExpansion(
             """
-            #stringify(a + b)
+            @ReuseIdentifier
+            class MyCell: UITableViewCell {
+                
+            }
             """,
             expandedSource: """
-            (a + b, "a + b")
+            class MyCell: UITableViewCell {
+            
+                static let identifier = "MyCell"
+                
+            }
             """,
             macros: testMacros
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
         #endif
     }
-
-    func testMacroWithStringLiteral() throws {
-        #if canImport(ReuseIdentifierKitMacros)
+    
+    func testDiagnotics() throws {
         assertMacroExpansion(
-            #"""
-            #stringify("Hello, \(name)")
-            """#,
-            expandedSource: #"""
-            ("Hello, \(name)", #""Hello, \(name)""#)
-            """#,
+            """
+            @ReuseIdentifier
+            struct MyCell {
+            }
+            """,
+            expandedSource: """
+            
+            struct MyCell {
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "This macro can only be applied to class declarations.", line: 1, column: 1)
+            ],
             macros: testMacros
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
+    }
+    
+    func testNotCellOrReusableType() throws {
+        assertMacroExpansion(
+            """
+            @ReuseIdentifier
+            class MyCell {
+            }
+            """,
+            expandedSource: """
+            
+            class MyCell {
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "This macro can only be applied to UITableViewCell, UICollectionViewCell or UICollectionReusableView", line: 1, column: 1)
+            ],
+            macros: testMacros
+        )
     }
 }

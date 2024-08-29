@@ -2,32 +2,88 @@ import SwiftCompilerPlugin
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
+import SwiftDiagnostics
 
-/// Implementation of the `stringify` macro, which takes an expression
-/// of any type and produces a tuple containing the value of that expression
-/// and the source code that produced the value. For example
-///
-///     #stringify(x + y)
-///
-///  will expand to
-///
-///     (x + y, "x + y")
-public struct StringifyMacro: ExpressionMacro {
-    public static func expansion(
-        of node: some FreestandingMacroExpansionSyntax,
-        in context: some MacroExpansionContext
-    ) -> ExprSyntax {
-        guard let argument = node.argumentList.first?.expression else {
-            fatalError("compiler bug: the macro does not have any arguments")
+private enum ClassDeclationDiagnostic: String, DiagnosticMessage {
+    case classOnly
+    case invalidType
+    
+    var message: String {
+        switch self {
+        case .classOnly:
+            return "This macro can only be applied to class declarations."
+        case .invalidType:
+            return "This macro can only be applied to UITableViewCell, UICollectionViewCell or UICollectionReusableView"
         }
+    }
+    
+    var diagnosticID: MessageID {
+        return MessageID(domain: "ReuseIdentifierKit",
+                         id: rawValue)
+    }
+    
+    var severity: DiagnosticSeverity {
+        return .error
+    }
+}
 
-        return "(\(argument), \(literal: argument.description))"
+public struct ReuseIdentifierMacro: MemberMacro {
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        guard let classDecl = declaration.as(ClassDeclSyntax.self) else {
+            let diagnostic = Diagnostic(
+                node: Syntax(declaration),
+                message: ClassDeclationDiagnostic.classOnly
+            )
+            context.diagnose(diagnostic)
+            return []
+        }
+        
+        guard let inheritedTypes = classDecl.inheritanceClause?.inheritedTypes else {
+            let diagnostic = Diagnostic(
+                node: Syntax(declaration),
+                message: ClassDeclationDiagnostic.invalidType
+            )
+            context.diagnose(diagnostic)
+            return []
+        }
+        
+        let validCases: Set<String> = [
+            "UITableViewCell",
+            "UICollectionViewCell",
+            "UICollectionReusableView"
+        ]
+        
+        let isValidSubClass = inheritedTypes.contains { inheritedType in
+            if let identifierType = inheritedType.type.as(IdentifierTypeSyntax.self) {
+                return validCases.contains(identifierType.name.text)
+            }
+            return false
+        }
+        
+        if !isValidSubClass {
+            let diagnostic = Diagnostic(
+                node: Syntax(declaration),
+                message: ClassDeclationDiagnostic.invalidType
+            )
+            context.diagnose(diagnostic)
+            return []
+        }
+        
+        let className = classDecl.name.text
+        
+        return [
+            "static let identifier = \"\(raw: className)\""
+        ]
     }
 }
 
 @main
 struct ReuseIdentifierKitPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
-        StringifyMacro.self,
+        ReuseIdentifierMacro.self,
     ]
 }
